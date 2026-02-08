@@ -20,8 +20,10 @@ import (
 	"bufio"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,11 +68,8 @@ func getMainModule() string {
 }
 
 func getDepInfo(mainModules []string) *DependencyOverview {
-	// If no main modules specified, detect using "go list -m"
 	if len(mainModules) == 0 {
-		if mainMod := getMainModule(); mainMod != "" {
-			mainModules = []string{mainMod}
-		}
+		mainModules = autoDetectMainModules()
 	}
 
 	// get output of "go mod graph" in a string
@@ -88,6 +87,182 @@ func getDepInfo(mainModules []string) *DependencyOverview {
 	depGraph := generateGraph(goModGraphOutputString, mainModules)
 	depGraph = applyModuleExclusions(depGraph, excludeModules)
 	return &depGraph
+}
+
+func autoDetectMainModules() []string {
+	if !autoMainModules {
+		if mainMod := getMainModule(); mainMod != "" {
+			return []string{mainMod}
+		}
+		return nil
+	}
+
+	baseDir := dir
+	if baseDir == "" {
+		wd, err := os.Getwd()
+		if err == nil {
+			baseDir = wd
+		}
+	}
+
+	modules, err := detectModulesFromGoWork(baseDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to parse go.work: %v\n", err)
+	}
+	if len(modules) == 0 {
+		modules, err = detectModulesByScan(baseDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to scan modules: %v\n", err)
+		}
+	}
+	if len(modules) == 0 {
+		if mainMod := getMainModule(); mainMod != "" {
+			return []string{mainMod}
+		}
+		return nil
+	}
+
+	filtered := filterDefaultModuleExclusions(modules)
+	printAutoModuleSelection(filtered, modules)
+	return filtered
+}
+
+func detectModulesFromGoWork(baseDir string) ([]string, error) {
+	path := filepath.Join(baseDir, "go.work")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	lines := strings.Split(string(data), "\n")
+	var modules []string
+	var inUse bool
+	for _, line := range lines {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "use (") {
+			inUse = true
+			continue
+		}
+		if inUse && trim == ")" {
+			inUse = false
+			continue
+		}
+		if strings.HasPrefix(trim, "use ") {
+			trim = strings.TrimSpace(strings.TrimPrefix(trim, "use "))
+		}
+		if strings.HasPrefix(trim, "//") || strings.HasPrefix(trim, "#") || trim == "" {
+			continue
+		}
+		if inUse || strings.HasPrefix(line, "use ") {
+			path := trim
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(baseDir, path)
+			}
+			modPath, err := modulePathFromDir(path)
+			if err != nil {
+				return nil, err
+			}
+			modules = append(modules, modPath)
+		}
+	}
+	return uniqueStrings(modules), nil
+}
+
+func detectModulesByScan(baseDir string) ([]string, error) {
+	var modules []string
+	walkFn := func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") || name == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "go.mod" {
+			return nil
+		}
+		modDir := filepath.Dir(path)
+		if autoMainModulesDepth > 0 {
+			rel, err := filepath.Rel(baseDir, modDir)
+			if err == nil {
+				depth := len(strings.Split(rel, string(filepath.Separator)))
+				if rel == "." {
+					depth = 0
+				}
+				if depth > autoMainModulesDepth {
+					return nil
+				}
+			}
+		}
+		modPath, err := modulePathFromDir(modDir)
+		if err != nil {
+			return err
+		}
+		modules = append(modules, modPath)
+		return nil
+	}
+	if err := filepath.WalkDir(baseDir, walkFn); err != nil {
+		return nil, err
+	}
+	return uniqueStrings(modules), nil
+}
+
+func modulePathFromDir(dir string) (string, error) {
+	file := filepath.Join(dir, "go.mod")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module ")), nil
+		}
+	}
+	return "", fmt.Errorf("module path not found in %s", file)
+}
+
+func filterDefaultModuleExclusions(mods []string) []string {
+	filtered := make([]string, 0, len(mods))
+	for _, mod := range mods {
+		if strings.Contains(mod, "/tools/") || strings.HasSuffix(mod, "/tools") {
+			continue
+		}
+		filtered = append(filtered, mod)
+	}
+	return filtered
+}
+
+func printAutoModuleSelection(selected []string, discovered []string) {
+	if len(selected) == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Auto-detected %d modules (excluding tools/*):\n", len(selected))
+	for _, mod := range selected {
+		fmt.Fprintf(os.Stderr, "  - %s\n", mod)
+	}
+	if len(discovered) != len(selected) {
+		fmt.Fprintln(os.Stderr, "Use --mainModules to override.")
+	}
+}
+
+func uniqueStrings(items []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, item := range items {
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func printDeps(deps []string) {

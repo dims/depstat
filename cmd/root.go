@@ -24,6 +24,8 @@ import (
 )
 
 var DepstatVersion string
+var autoMainModules bool
+var autoMainModulesDepth int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -43,4 +45,9 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func init() {
+	rootCmd.PersistentFlags().BoolVar(&autoMainModules, "auto-main-modules", true, "Auto-detect main modules from go.work or go.mod files")
+	rootCmd.PersistentFlags().IntVar(&autoMainModulesDepth, "auto-main-modules-depth", 0, "Limit auto-detected modules to this directory depth (0 = no limit)")
 }
