@@ -298,6 +298,9 @@ func listAllModules(selectedMainModules []string) ([]goModule, error) {
 	}
 
 	depGraph := getDepInfo(selectedMainModules)
+	if len(depGraph.MainModules) == 0 {
+		return nil, fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
+	}
 	reachable := make(map[string]bool)
 	for _, dep := range getAllDeps(depGraph.DirectDepList, depGraph.TransDepList) {
 		reachable[dep] = true
@@ -552,6 +555,7 @@ func init() {
 	rootCmd.AddCommand(archivedCmd)
 	archivedCmd.Flags().StringVarP(&dir, "dir", "d", "", "Directory containing the module to evaluate. Defaults to the current directory.")
 	archivedCmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Get the output in JSON format")
+	archivedCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	archivedCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
 	archivedCmd.Flags().StringVar(&githubTokenPath, "github-token-path", "", "Path to a file containing the GitHub API token. If not set, uses GITHUB_TOKEN env var.")
 }
