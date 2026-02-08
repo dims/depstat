@@ -77,6 +77,9 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	target := args[0]
 
 	depGraph := getDepInfo(mainModules)
+	if len(depGraph.MainModules) == 0 {
+		return fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
+	}
 
 	// Find all paths to the target
 	result := WhyResult{
@@ -303,5 +306,6 @@ func init() {
 	whyCmd.Flags().BoolVarP(&dotOutput, "dot", "", false, "Output in DOT format for Graphviz")
 	whyCmd.Flags().BoolVarP(&svgOutput, "svg", "s", false, "Output as self-contained SVG diagram")
 	whyCmd.Flags().IntVar(&whyMaxPaths, "max-paths", whyDefaultMaxPaths, "Maximum dependency paths to search. Set 0 for no limit")
+	whyCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	whyCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
 }
