@@ -94,6 +94,10 @@ var cyclesCmd = &cobra.Command{
 			printCycleSummary(summary)
 		}
 
+		if svgOutput {
+			return fmt.Errorf("--svg is not supported for cycles")
+		}
+
 		if jsonOutputCycles {
 			outputObj := map[string]interface{}{}
 			if !summaryOutputCycles {
@@ -444,6 +448,7 @@ func init() {
 	cyclesCmd.Flags().BoolVar(&summaryOutputCycles, "summary", false, "Show cycle summary instead of raw cycle list")
 	cyclesCmd.Flags().IntVar(&maxCycleLength, "max-length", 0, "Limit cycles to length <= N (0 = no limit)")
 	cyclesCmd.Flags().IntVarP(&cyclesTopN, "top", "n", 10, "Number of top participants to show in summary")
+	cyclesCmd.Flags().BoolVarP(&svgOutput, "svg", "s", false, "(unsupported) placeholder for svg output")
 	cyclesCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	cyclesCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Enter modules whose dependencies should be considered direct dependencies; defaults to the first module encountered in `go mod graph` output")
 }

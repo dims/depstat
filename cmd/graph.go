@@ -17,9 +17,11 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -34,6 +36,7 @@ var graphJSONOutput bool
 var graphOutputPath string
 var graphTopMode string
 var graphTopN int
+var graphSVGOutput bool
 
 type graphNode struct {
 	Module       string `json:"module"`
@@ -66,8 +69,8 @@ var graphCmd = &cobra.Command{
 	- Direct edges (solid blue): from main module(s) to their direct dependencies
 	- Transitive edges (dashed gray): dependencies of dependencies`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if graphDotOutput && graphJSONOutput {
-			return fmt.Errorf("--dot and --json are mutually exclusive")
+		if (graphDotOutput && graphJSONOutput) || (graphSVGOutput && graphJSONOutput) || (graphDotOutput && graphSVGOutput) {
+			return fmt.Errorf("--dot, --svg, and --json are mutually exclusive")
 		}
 		if graphTopMode != "" && graphDotOutput {
 			return fmt.Errorf("cannot use --top with --dot")
@@ -150,6 +153,9 @@ var graphCmd = &cobra.Command{
 		if graphDotOutput {
 			fmt.Print(fileContents)
 			return nil
+		}
+		if graphSVGOutput {
+			return outputGraphSVG(fileContents)
 		}
 
 		fileContentsByte := []byte(fileContents)
@@ -270,6 +276,18 @@ func chainContains(chain Chain, dep string) bool {
 		}
 	}
 	return false
+}
+
+func outputGraphSVG(dot string) error {
+	cmd := exec.Command("dot", "-Tsvg")
+	cmd.Stdin = strings.NewReader(dot)
+	cmd.Stdout = os.Stdout
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to render DOT as SVG via graphviz 'dot': %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
 }
 
 func colorMainNode(mainNode string) string {
@@ -432,6 +450,7 @@ func init() {
 	graphCmd.Flags().StringVarP(&dep, "dep", "p", "", "Specify dependency to create a graph around")
 	graphCmd.Flags().BoolVar(&showEdgeTypes, "show-edge-types", false, "Distinguish direct vs transitive edges with colors/styles")
 	graphCmd.Flags().BoolVar(&graphDotOutput, "dot", false, "Output DOT graph to stdout")
+	graphCmd.Flags().BoolVarP(&graphSVGOutput, "svg", "s", false, "Render DOT output as SVG (requires graphviz 'dot')")
 	graphCmd.Flags().BoolVarP(&graphJSONOutput, "json", "j", false, "Output graph data in JSON format")
 	graphCmd.Flags().StringVar(&graphTopMode, "top", "", "Show top modules by degree: in, out, or both")
 	graphCmd.Flags().IntVarP(&graphTopN, "n", "n", 10, "Number of modules to show with --top")
