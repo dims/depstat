@@ -26,6 +26,7 @@ import (
 
 var listSplitTestOnly bool
 var listJSONOutput bool
+var listVerbose bool
 
 // analyzeDepsCmd represents the analyzeDeps command
 var listCmd = &cobra.Command{
@@ -55,6 +56,11 @@ var listCmd = &cobra.Command{
 			testOnly := filterDepsByTestStatus(allDeps, testOnlySet, true)
 			sort.Strings(nonTest)
 			sort.Strings(testOnly)
+			if listVerbose {
+				fmt.Printf("All dependencies (%d):\n", len(allDeps))
+				printDeps(allDeps)
+				fmt.Println()
+			}
 			if listJSONOutput {
 				outputObj := struct {
 					All       []string `json:"allDependencies"`
@@ -116,4 +122,5 @@ func init() {
 	listCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	listCmd.Flags().BoolVarP(&listJSONOutput, "json", "j", false, "Get the output in JSON format")
 	listCmd.Flags().BoolVar(&listSplitTestOnly, "split-test-only", false, "Split list into test-only and non-test sections (uses go mod why -m)")
+	listCmd.Flags().BoolVarP(&listVerbose, "verbose", "v", false, "Include full dependency list alongside split output")
 }

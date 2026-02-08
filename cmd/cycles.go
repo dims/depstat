@@ -29,6 +29,7 @@ var jsonOutputCycles bool
 var summaryOutputCycles bool
 var maxCycleLength int
 var cyclesTopN int
+var cyclesVerbose bool
 
 // cyclesFinder implements Johnson's algorithm for finding all elementary cycles
 // in a directed graph. Time complexity: O((V+E)(C+1)) where C is the number of cycles.
@@ -92,6 +93,13 @@ var cyclesCmd = &cobra.Command{
 
 		if !jsonOutputCycles && summaryOutputCycles {
 			printCycleSummary(summary)
+			if cyclesVerbose {
+				fmt.Println()
+				fmt.Println("All cycles in dependencies are: ")
+				for _, c := range cycles {
+					printChain(c)
+				}
+			}
 		}
 
 		if jsonOutputCycles {
@@ -444,6 +452,7 @@ func init() {
 	cyclesCmd.Flags().BoolVar(&summaryOutputCycles, "summary", false, "Show cycle summary instead of raw cycle list")
 	cyclesCmd.Flags().IntVar(&maxCycleLength, "max-length", 0, "Limit cycles to length <= N (0 = no limit)")
 	cyclesCmd.Flags().IntVarP(&cyclesTopN, "top", "n", 10, "Number of top participants to show in summary")
+	cyclesCmd.Flags().BoolVarP(&cyclesVerbose, "verbose", "v", false, "Include raw cycles with summary output")
 	cyclesCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	cyclesCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Enter modules whose dependencies should be considered direct dependencies; defaults to the first module encountered in `go mod graph` output")
 }
