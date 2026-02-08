@@ -263,10 +263,10 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	// Compute diff
 	result := DiffResult{
 		ExcludeModules: diffExcludeModules,
-		BaseRef: baseRef,
-		HeadRef: headRef,
-		Before:  baseStats,
-		After:   headStats,
+		BaseRef:        baseRef,
+		HeadRef:        headRef,
+		Before:         baseStats,
+		After:          headStats,
 		Delta: DiffStats{
 			DirectDeps: headStats.DirectDeps - baseStats.DirectDeps,
 			TransDeps:  headStats.TransDeps - baseStats.TransDeps,
