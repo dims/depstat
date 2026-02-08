@@ -68,17 +68,21 @@ func captureStdout(t *testing.T, fn func()) string {
 		os.Stdout = old
 	}()
 
+	var buf bytes.Buffer
+	readDone := make(chan error, 1)
+	go func() {
+		_, readErr := io.Copy(&buf, r)
+		_ = r.Close()
+		readDone <- readErr
+	}()
+
 	fn()
 
 	if err := w.Close(); err != nil {
 		t.Fatalf("close writer: %v", err)
 	}
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, r); err != nil {
+	if err := <-readDone; err != nil {
 		t.Fatalf("read capture: %v", err)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("close reader: %v", err)
 	}
 	return buf.String()
 }

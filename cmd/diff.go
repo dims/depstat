@@ -966,14 +966,21 @@ func captureDOTOutput(fn func() error) (string, error) {
 		return "", err
 	}
 	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+	}()
+
+	var buf bytes.Buffer
+	readErrCh := make(chan error, 1)
+	go func() {
+		_, readErr := io.Copy(&buf, r)
+		_ = r.Close()
+		readErrCh <- readErr
+	}()
 
 	runErr := fn()
 	closeErr := w.Close()
-	os.Stdout = oldStdout
-
-	var buf bytes.Buffer
-	_, readErr := io.Copy(&buf, r)
-	_ = r.Close()
+	readErr := <-readErrCh
 
 	if runErr != nil {
 		return "", runErr
