@@ -34,6 +34,7 @@ var graphJSONOutput bool
 var graphOutputPath string
 var graphTopMode string
 var graphTopN int
+var graphSplitTestOnly bool
 
 type graphNode struct {
 	Module       string `json:"module"`
@@ -84,6 +85,31 @@ var graphCmd = &cobra.Command{
 		overview := getDepInfo(mainModules)
 		if len(overview.MainModules) == 0 {
 			return fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
+		}
+		if graphSplitTestOnly {
+			allDeps := getAllDeps(overview.DirectDepList, overview.TransDepList)
+			testOnlySet, err := classifyTestDeps(allDeps)
+			if err != nil {
+				return fmt.Errorf("failed to classify dependencies: %w", err)
+			}
+			nonTestGraph, testOnlyGraph := splitGraphByTestStatus(overview, testOnlySet)
+			if graphJSONOutput {
+				outputObj := map[string]interface{}{
+					"nonTestOnly": buildGraphOutput(nonTestGraph),
+					"testOnly":    buildGraphOutput(testOnlyGraph),
+				}
+				out, err := json.MarshalIndent(outputObj, "", "\t")
+				if err != nil {
+					return err
+				}
+				fmt.Print(string(out))
+				return nil
+			}
+			fmt.Println("Non-test dependencies graph:")
+			fmt.Println(getFileContentsForAllDepsWithTypes(nonTestGraph, showEdgeTypes))
+			fmt.Println("Test-only dependencies graph:")
+			fmt.Println(getFileContentsForAllDepsWithTypes(testOnlyGraph, showEdgeTypes))
+			return nil
 		}
 		nodes, edgeObjects := buildGraphTopology(overview)
 
@@ -435,7 +461,80 @@ func init() {
 	graphCmd.Flags().BoolVarP(&graphJSONOutput, "json", "j", false, "Output graph data in JSON format")
 	graphCmd.Flags().StringVar(&graphTopMode, "top", "", "Show top modules by degree: in, out, or both")
 	graphCmd.Flags().IntVarP(&graphTopN, "n", "n", 10, "Number of modules to show with --top")
+	graphCmd.Flags().BoolVar(&graphSplitTestOnly, "split-test-only", false, "Split graph into test-only and non-test sections (uses go mod why -m)")
 	graphCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	graphCmd.Flags().StringVar(&graphOutputPath, "output", "graph.dot", "Path to DOT output file when not using --dot or --json")
 	graphCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
+}
+
+func splitGraphByTestStatus(overview *DependencyOverview, testOnlySet map[string]bool) (*DependencyOverview, *DependencyOverview) {
+	clone := func() *DependencyOverview {
+		return &DependencyOverview{
+			Graph:         map[string][]string{},
+			DirectDepList: []string{},
+			TransDepList:  []string{},
+			MainModules:   overview.MainModules,
+			Versions:      overview.Versions,
+		}
+	}
+	nonTest := clone()
+	testOnly := clone()
+	for from, tos := range overview.Graph {
+		for _, to := range tos {
+			if testOnlySet[from] && testOnlySet[to] {
+				testOnly.Graph[from] = append(testOnly.Graph[from], to)
+			} else {
+				nonTest.Graph[from] = append(nonTest.Graph[from], to)
+			}
+		}
+	}
+	nonTest.DirectDepList, nonTest.TransDepList = recomputeDepLists(nonTest)
+	testOnly.DirectDepList, testOnly.TransDepList = recomputeDepLists(testOnly)
+	return nonTest, testOnly
+}
+
+func recomputeDepLists(overview *DependencyOverview) ([]string, []string) {
+	directSet := map[string]bool{}
+	transSet := map[string]bool{}
+	var direct []string
+	var trans []string
+	mainSet := map[string]bool{}
+	for _, m := range overview.MainModules {
+		mainSet[m] = true
+	}
+	for from, tos := range overview.Graph {
+		for _, to := range tos {
+			if mainSet[from] {
+				if !mainSet[to] && !directSet[to] {
+					directSet[to] = true
+					direct = append(direct, to)
+				}
+			} else {
+				if !mainSet[to] && !transSet[to] {
+					transSet[to] = true
+					trans = append(trans, to)
+				}
+			}
+		}
+	}
+	sort.Strings(direct)
+	sort.Strings(trans)
+	return direct, trans
+}
+
+func buildGraphOutput(overview *DependencyOverview) map[string]interface{} {
+	edges := getEdges(overview.Graph)
+	nodes, edgeObjects := buildGraphTopology(overview)
+	return map[string]interface{}{
+		"mainModules":               overview.MainModules,
+		"directDependencies":        overview.DirectDepList,
+		"transitiveDependencies":    overview.TransDepList,
+		"graph":                     overview.Graph,
+		"edges":                     edges,
+		"nodes":                     nodes,
+		"edgeObjects":               edgeObjects,
+		"directDependencyCount":     len(overview.DirectDepList),
+		"transitiveDependencyCount": len(overview.TransDepList),
+		"edgeCount":                 len(edges),
+	}
 }
