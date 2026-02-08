@@ -40,7 +40,7 @@ Run `depstat help` for full command help.
 - `depstat graph`: dependency graph (`--dot`, `--json`, `--output`, `--dep`/`-p`, `--show-edge-types`, `--mainModules`, `--dir`)
 - `depstat cycles`: detect dependency cycles (`--json`, `--mainModules`, `--dir`)
 - `depstat why <dependency>`: explain why a dependency is present (`--json`, `--dot`, `--svg`, `--mainModules`, `--dir`)
-- `depstat diff <base-ref> [head-ref]`: compare dependency changes between git refs (`--json`, `--dot`, `--svg`, `--verbose`, `--split-test-only`, `--vendor`, `--vendor-files`, `--mainModules`, `--dir`)
+- `depstat diff <base-ref> [head-ref]`: compare dependency changes between git refs (`--json`, `--dot`, `--svg`, `--stats`, `--verbose`, `--split-test-only`, `--vendor`, `--vendor-files`, `--mainModules`, `--dir`)
 - `depstat archived`: detect archived upstream GitHub repositories (`--json`, `--github-token-path`, `--mainModules`, `--dir`)
 - `depstat completion [bash|zsh|fish|powershell]`
 
@@ -49,6 +49,7 @@ The `--mainModules` / `-m` flag accepts a comma-separated list of module names t
 Use `depstat stats --split-test-only` to separate totals into test-only and non-test dependency sections (classified via `go mod why -m`).
 
 `depstat diff` includes a high-signal `Summary` section and reports `Version Changes` by default.  
+Use `depstat diff --stats` for a compact before/after/delta stats report without listing dependencies.
 With `--vendor`, it also reports vendor module additions/removals/version changes and `Vendor-only Removals` (modules removed from vendor but still present in the module graph).  
 With `--vendor-files`, it additionally reports added/deleted vendored Go files.
 
