@@ -1,6 +1,6 @@
 # depstat
 
-`depstat` is a CLI for analyzing Go module dependency graphs, with a strong focus on Kubernetes dependency review workflows.
+`depstat` is a CLI for analyzing Go module dependency graphs, with a strong focus on large multi-module repos such as Kubernetes, etcd, and containerd.
 
 ![depstat demo with k8s repo](./depstat-demo.gif)
 
@@ -21,11 +21,13 @@ depstat cycles         # detect dependency cycles
 depstat why <module>   # explain why a dependency is present
 ```
 
-## Kubernetes-Focused Documentation
+## Kubernetes, etcd, and containerd
 
-For real usage against `k8s.io/kubernetes` (including `MAIN_MODULES`, PR diff analysis, and archived dependency checks), see:
+For real usage against Kubernetes, etcd, and containerd (including multi-module `--mainModules`, diff analysis, and archived dependency checks), see:
 
 - [docs/cli-kubernetes.md](docs/cli-kubernetes.md)
+- [docs/cli-etcd.md](docs/cli-etcd.md)
+- [docs/cli-containerd.md](docs/cli-containerd.md)
 
 This guide mirrors the patterns used in Kubernetes test-infra Prow jobs.
 
@@ -52,7 +54,7 @@ With `--vendor-files`, it additionally reports added/deleted vendored Go files.
 
 ## Project Goals
 
-`depstat` is developed under SIG Architecture code organization efforts to make dependency changes easier to evaluate in Kubernetes CI.
+`depstat` is developed under SIG Architecture code organization efforts to make dependency changes easier to evaluate across Kubernetes and other CNCF projects.
 
 ## Community Contact Information
 
