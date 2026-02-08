@@ -31,6 +31,7 @@ import (
 
 var dotOutput bool
 var svgOutput bool
+var diffStatsOnly bool
 var testOnly bool
 var nonTestOnly bool
 var diffSplitTestOnly bool
@@ -162,6 +163,9 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 	if dotOutput && svgOutput {
 		return fmt.Errorf("--dot and --svg are mutually exclusive")
+	}
+	if diffStatsOnly && (dotOutput || svgOutput) {
+		return fmt.Errorf("--stats cannot be combined with --dot or --svg")
 	}
 
 	baseRef := args[0]
@@ -328,6 +332,12 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	// Output based on format
+	if diffStatsOnly {
+		if jsonOutput {
+			return outputStatsJSON(result)
+		}
+		return outputStatsText(result)
+	}
 	if jsonOutput {
 		return outputJSON(result)
 	}
@@ -552,6 +562,74 @@ func outputJSON(result DiffResult) error {
 		return err
 	}
 	fmt.Println(string(out))
+	return nil
+}
+
+func outputStatsText(result DiffResult) error {
+	if result.Filter != "" {
+		fmt.Printf("Dependency Diff Stats: %s..%s (%s)\n", result.BaseRef, result.HeadRef, result.Filter)
+	} else {
+		fmt.Printf("Dependency Diff Stats: %s..%s\n", result.BaseRef, result.HeadRef)
+	}
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Println()
+
+	fmt.Println("Metrics:")
+	fmt.Println("┌────────────────────┬──────────┬──────────┬─────────┐")
+	fmt.Println("│ Metric             │  Before  │  After   │  Delta  │")
+	fmt.Println("├────────────────────┼──────────┼──────────┼─────────┤")
+	fmt.Printf("│ Direct Deps        │ %8d │ %8d │ %+7d │\n", result.Before.DirectDeps, result.After.DirectDeps, result.Delta.DirectDeps)
+	fmt.Printf("│ Transitive Deps    │ %8d │ %8d │ %+7d │\n", result.Before.TransDeps, result.After.TransDeps, result.Delta.TransDeps)
+	fmt.Printf("│ Total Deps         │ %8d │ %8d │ %+7d │\n", result.Before.TotalDeps, result.After.TotalDeps, result.Delta.TotalDeps)
+	fmt.Printf("│ Max Depth          │ %8d │ %8d │ %+7d │\n", result.Before.MaxDepth, result.After.MaxDepth, result.Delta.MaxDepth)
+	fmt.Println("└────────────────────┴──────────┴──────────┴─────────┘")
+	fmt.Println()
+
+	if result.FilteredBefore != nil && result.FilteredAfter != nil && result.FilteredDelta != nil {
+		fmt.Printf("Filtered counts for %s dependencies:\n", result.Filter)
+		fmt.Println("┌────────────────────┬──────────┬──────────┬─────────┐")
+		fmt.Println("│ Metric             │  Before  │  After   │  Delta  │")
+		fmt.Println("├────────────────────┼──────────┼──────────┼─────────┤")
+		fmt.Printf("│ Direct Deps        │ %8d │ %8d │ %+7d │\n", result.FilteredBefore.DirectDeps, result.FilteredAfter.DirectDeps, result.FilteredDelta.DirectDeps)
+		fmt.Printf("│ Transitive Deps    │ %8d │ %8d │ %+7d │\n", result.FilteredBefore.TransDeps, result.FilteredAfter.TransDeps, result.FilteredDelta.TransDeps)
+		fmt.Printf("│ Total Deps         │ %8d │ %8d │ %+7d │\n", result.FilteredBefore.TotalDeps, result.FilteredAfter.TotalDeps, result.FilteredDelta.TotalDeps)
+		fmt.Println("└────────────────────┴──────────┴──────────┴─────────┘")
+		fmt.Println()
+	}
+
+	if result.Split != nil {
+		fmt.Println("Split by dependency class:")
+		fmt.Println()
+		printSplitSection("Non-test dependencies", result.Split.NonTestOnly)
+		printSplitSection("Test-only dependencies", result.Split.TestOnly)
+	}
+
+	return nil
+}
+
+func outputStatsJSON(result DiffResult) error {
+	outputObj := struct {
+		Before         DiffStats        `json:"before"`
+		After          DiffStats        `json:"after"`
+		Delta          DiffStats        `json:"delta"`
+		FilteredBefore *DiffCounts      `json:"filteredBefore,omitempty"`
+		FilteredAfter  *DiffCounts      `json:"filteredAfter,omitempty"`
+		FilteredDelta  *DiffCounts      `json:"filteredDelta,omitempty"`
+		Split          *DiffSplitResult `json:"split,omitempty"`
+	}{
+		Before:         result.Before,
+		After:          result.After,
+		Delta:          result.Delta,
+		FilteredBefore: result.FilteredBefore,
+		FilteredAfter:  result.FilteredAfter,
+		FilteredDelta:  result.FilteredDelta,
+		Split:          result.Split,
+	}
+	outputRaw, err := json.MarshalIndent(outputObj, "", "\t")
+	if err != nil {
+		return err
+	}
+	fmt.Print(string(outputRaw))
 	return nil
 }
 
@@ -1244,6 +1322,7 @@ func init() {
 	diffCmd.Flags().BoolVarP(&dotOutput, "dot", "", false, "Output in DOT format for Graphviz")
 	diffCmd.Flags().BoolVarP(&svgOutput, "svg", "s", false, "Render DOT output as SVG (requires graphviz 'dot')")
 	diffCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Include edge-level changes")
+	diffCmd.Flags().BoolVar(&diffStatsOnly, "stats", false, "Output only dependency stats (use --json for machine-readable output)")
 	diffCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
 	diffCmd.Flags().BoolVar(&testOnly, "test-only", false, "Only show test-only dependency changes (uses go mod why -m)")
 	diffCmd.Flags().BoolVar(&nonTestOnly, "non-test-only", false, "Only show non-test (production) dependency changes (uses go mod why -m)")
