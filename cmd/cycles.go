@@ -31,6 +31,7 @@ var maxCycleLength int
 var cyclesTopN int
 var cyclesVerbose bool
 var cyclesSplitTestOnly bool
+var cyclesSVGOutput bool
 
 // cyclesFinder implements Johnson's algorithm for finding all elementary cycles
 // in a directed graph. Time complexity: O((V+E)(C+1)) where C is the number of cycles.
@@ -128,6 +129,9 @@ var cyclesCmd = &cobra.Command{
 					printChain(c)
 				}
 			}
+		}
+		if cyclesSVGOutput {
+			return fmt.Errorf("--svg is not supported for cycles")
 		}
 
 		if jsonOutputCycles {
@@ -481,6 +485,7 @@ func init() {
 	cyclesCmd.Flags().IntVar(&maxCycleLength, "max-length", 0, "Limit cycles to length <= N (0 = no limit)")
 	cyclesCmd.Flags().IntVarP(&cyclesTopN, "top", "n", 10, "Number of top participants to show in summary")
 	cyclesCmd.Flags().BoolVar(&cyclesSplitTestOnly, "split-test-only", false, "Split cycles into test-only and non-test sections (uses go mod why -m)")
+	cyclesCmd.Flags().BoolVarP(&cyclesSVGOutput, "svg", "s", false, "(unsupported) placeholder for svg output")
 	cyclesCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	cyclesCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Enter modules whose dependencies should be considered direct dependencies; defaults to the first module encountered in `go mod graph` output")
 	cyclesCmd.Flags().BoolVarP(&cyclesVerbose, "verbose", "v", false, "Include raw cycles with summary output")
