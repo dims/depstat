@@ -29,6 +29,7 @@ var jsonOutputCycles bool
 var summaryOutputCycles bool
 var maxCycleLength int
 var cyclesTopN int
+var cyclesSplitTestOnly bool
 
 // cyclesFinder implements Johnson's algorithm for finding all elementary cycles
 // in a directed graph. Time complexity: O((V+E)(C+1)) where C is the number of cycles.
@@ -78,6 +79,33 @@ var cyclesCmd = &cobra.Command{
 		}
 
 		cycles := findAllCyclesWithMaxLength(overview.Graph, maxCycleLength)
+		if cyclesSplitTestOnly {
+			allDeps := getAllDeps(overview.DirectDepList, overview.TransDepList)
+			testOnlySet, err := classifyTestDeps(allDeps)
+			if err != nil {
+				return fmt.Errorf("failed to classify dependencies: %w", err)
+			}
+			nonTestCycles, testOnlyCycles := splitCyclesByTestStatus(cycles, testOnlySet)
+			if jsonOutputCycles {
+				outputObj := map[string]interface{}{
+					"nonTestOnly": buildCycleOutput(nonTestCycles, summaryOutputCycles, cyclesTopN),
+					"testOnly":    buildCycleOutput(testOnlyCycles, summaryOutputCycles, cyclesTopN),
+				}
+				outputRaw, err := json.MarshalIndent(outputObj, "", "\t")
+				if err != nil {
+					return err
+				}
+				fmt.Print(string(outputRaw))
+				return nil
+			}
+			fmt.Println("Non-test cycles:")
+			printCyclesSection(nonTestCycles, summaryOutputCycles, cyclesTopN)
+			fmt.Println()
+			fmt.Println("Test-only cycles:")
+			printCyclesSection(testOnlyCycles, summaryOutputCycles, cyclesTopN)
+			return nil
+		}
+
 		var summary cycleSummary
 		if summaryOutputCycles {
 			summary = summarizeCycles(cycles, cyclesTopN)
@@ -444,6 +472,47 @@ func init() {
 	cyclesCmd.Flags().BoolVar(&summaryOutputCycles, "summary", false, "Show cycle summary instead of raw cycle list")
 	cyclesCmd.Flags().IntVar(&maxCycleLength, "max-length", 0, "Limit cycles to length <= N (0 = no limit)")
 	cyclesCmd.Flags().IntVarP(&cyclesTopN, "top", "n", 10, "Number of top participants to show in summary")
+	cyclesCmd.Flags().BoolVar(&cyclesSplitTestOnly, "split-test-only", false, "Split cycles into test-only and non-test sections (uses go mod why -m)")
 	cyclesCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	cyclesCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Enter modules whose dependencies should be considered direct dependencies; defaults to the first module encountered in `go mod graph` output")
+}
+
+func splitCyclesByTestStatus(cycles []Chain, testOnlySet map[string]bool) ([]Chain, []Chain) {
+	var nonTest []Chain
+	var testOnly []Chain
+	for _, cycle := range cycles {
+		onlyTest := true
+		for _, node := range cycle[:len(cycle)-1] {
+			if !testOnlySet[node] {
+				onlyTest = false
+				break
+			}
+		}
+		if onlyTest {
+			testOnly = append(testOnly, cycle)
+		} else {
+			nonTest = append(nonTest, cycle)
+		}
+	}
+	return nonTest, testOnly
+}
+
+func buildCycleOutput(cycles []Chain, summary bool, topN int) map[string]interface{} {
+	output := map[string]interface{}{}
+	if summary {
+		output["summary"] = summarizeCycles(cycles, topN)
+	} else {
+		output["cycles"] = cycles
+	}
+	return output
+}
+
+func printCyclesSection(cycles []Chain, summary bool, topN int) {
+	if summary {
+		printCycleSummary(summarizeCycles(cycles, topN))
+		return
+	}
+	for _, c := range cycles {
+		printChain(c)
+	}
 }
