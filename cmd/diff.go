@@ -36,6 +36,7 @@ var nonTestOnly bool
 var diffSplitTestOnly bool
 var vendorFlag bool
 var vendorFilesFlag bool
+var diffExcludeModules []string
 
 // DiffStats holds the stats for a single analysis
 type DiffStats struct {
@@ -100,6 +101,7 @@ type DiffSummary struct {
 // DiffResult holds the complete diff analysis
 type DiffResult struct {
 	Filter         string            `json:"filter,omitempty"`
+	ExcludeModules []string          `json:"excludeModules,omitempty"`
 	BaseRef        string            `json:"baseRef"`
 	HeadRef        string            `json:"headRef"`
 	Before         DiffStats         `json:"before"`
@@ -143,6 +145,18 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	if testOnly && nonTestOnly {
 		return fmt.Errorf("--test-only and --non-test-only are mutually exclusive")
 	}
+	if vendorFilesFlag {
+		vendorFlag = true
+	}
+	if len(diffExcludeModules) > 0 && (vendorFlag || vendorFilesFlag) {
+		return fmt.Errorf("--exclude-modules cannot be combined with --vendor or --vendor-files")
+	}
+	if len(diffExcludeModules) > 0 && diffSplitTestOnly {
+		return fmt.Errorf("--exclude-modules cannot be combined with --split-test-only")
+	}
+	if len(diffExcludeModules) > 0 && (testOnly || nonTestOnly) {
+		return fmt.Errorf("--exclude-modules cannot be combined with --test-only or --non-test-only")
+	}
 	if diffSplitTestOnly && (testOnly || nonTestOnly) {
 		return fmt.Errorf("--split-test-only cannot be combined with --test-only or --non-test-only")
 	}
@@ -157,6 +171,11 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	}
 
 	needClassification := diffSplitTestOnly || testOnly || nonTestOnly
+	defer func() {
+		excludeModules = nil
+		vendorFlag = false
+		vendorFilesFlag = false
+	}()
 
 	// Save current ref state to restore later.
 	originalRef, err := gitCurrentRefState()
@@ -201,7 +220,11 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	if err := gitCheckout(baseSHA); err != nil {
 		return fmt.Errorf("failed to checkout base ref %s: %w", baseRef, err)
 	}
+	excludeModules = diffExcludeModules
 	baseDepGraph := getDepInfo(mainModules)
+	if len(baseDepGraph.MainModules) == 0 {
+		return fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
+	}
 	baseStats := computeStats(baseDepGraph)
 	baseDeps := getAllDeps(baseDepGraph.DirectDepList, baseDepGraph.TransDepList)
 	baseEdges := getEdges(baseDepGraph.Graph)
@@ -219,7 +242,11 @@ func runDiff(cmd *cobra.Command, args []string) error {
 	if err := gitCheckout(headSHA); err != nil {
 		return fmt.Errorf("failed to checkout head ref %s: %w", headRef, err)
 	}
+	excludeModules = diffExcludeModules
 	headDepGraph := getDepInfo(mainModules)
+	if len(headDepGraph.MainModules) == 0 {
+		return fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
+	}
 	headStats := computeStats(headDepGraph)
 	headDeps := getAllDeps(headDepGraph.DirectDepList, headDepGraph.TransDepList)
 	headEdges := getEdges(headDepGraph.Graph)
@@ -235,6 +262,7 @@ func runDiff(cmd *cobra.Command, args []string) error {
 
 	// Compute diff
 	result := DiffResult{
+		ExcludeModules: diffExcludeModules,
 		BaseRef: baseRef,
 		HeadRef: headRef,
 		Before:  baseStats,
@@ -1217,4 +1245,5 @@ func init() {
 	_ = diffCmd.Flags().MarkDeprecated("non-test-only", "use --split-test-only and read split.nonTestOnly")
 	diffCmd.Flags().BoolVar(&vendorFlag, "vendor", false, "Include vendor-level diff using vendor/modules.txt")
 	diffCmd.Flags().BoolVar(&vendorFilesFlag, "vendor-files", false, "Report added/deleted Go files in vendor/ (implies --vendor)")
+	diffCmd.Flags().StringSliceVar(&diffExcludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 }
