@@ -96,6 +96,7 @@ var skipPrefixes = []string{
 }
 
 var githubTokenPath string
+var archivedSplitTestOnly bool
 
 var archivedCmd = &cobra.Command{
 	Use:   "archived",
@@ -150,6 +151,9 @@ func runArchived(cmd *cobra.Command, args []string) error {
 	modules, err := listAllModules(mainModules)
 	if err != nil {
 		return fmt.Errorf("listing modules: %w", err)
+	}
+	if archivedSplitTestOnly {
+		return fmt.Errorf("--split-test-only not supported for archived")
 	}
 
 	// Separate direct github.com paths from vanity URLs
@@ -556,6 +560,7 @@ func init() {
 	archivedCmd.Flags().StringVarP(&dir, "dir", "d", "", "Directory containing the module to evaluate. Defaults to the current directory.")
 	archivedCmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Get the output in JSON format")
 	archivedCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
+	archivedCmd.Flags().BoolVar(&archivedSplitTestOnly, "split-test-only", false, "(unsupported) placeholder for split-test-only")
 	archivedCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
 	archivedCmd.Flags().StringVar(&githubTokenPath, "github-token-path", "", "Path to a file containing the GitHub API token. If not set, uses GITHUB_TOKEN env var.")
 }
