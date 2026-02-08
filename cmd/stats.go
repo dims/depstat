@@ -52,31 +52,31 @@ var statsCmd = &cobra.Command{
 		if len(args) != 0 {
 			return fmt.Errorf("stats does not take any arguments")
 		}
-	if statsCompare {
-		return runStatsCompare(cmd)
-	}
-	result, err := computeStatsSnapshot(mainModules, excludeModules, splitTestOnly)
-	if err != nil {
-		return err
-	}
-	return renderStatsSnapshot(result, mainModules, excludeModules)
+		if statsCompare {
+			return runStatsCompare(cmd)
+		}
+		result, err := computeStatsSnapshot(mainModules, excludeModules, splitTestOnly)
+		if err != nil {
+			return err
+		}
+		return renderStatsSnapshot(result, mainModules, excludeModules)
 	},
 }
 
 type StatsSnapshot struct {
-	DirectDeps    int  `json:"directDependencies"`
-	TransDeps     int  `json:"transitiveDependencies"`
-	TotalDeps     int  `json:"totalDependencies"`
-	MaxDepth      int  `json:"maxDepthOfDependencies"`
-	TestOnlyDeps  *int `json:"testOnlyDependencies,omitempty"`
-	NonTestOnly   *int `json:"nonTestOnlyDependencies,omitempty"`
+	DirectDeps    int      `json:"directDependencies"`
+	TransDeps     int      `json:"transitiveDependencies"`
+	TotalDeps     int      `json:"totalDependencies"`
+	MaxDepth      int      `json:"maxDepthOfDependencies"`
+	TestOnlyDeps  *int     `json:"testOnlyDependencies,omitempty"`
+	NonTestOnly   *int     `json:"nonTestOnlyDependencies,omitempty"`
 	MainModules   []string `json:"mainModules,omitempty"`
 	ExcludeValues []string `json:"excludeModules,omitempty"`
 }
 
 type StatsCompareResult struct {
-	SetA    string         `json:"setA"`
-	SetB    string         `json:"setB"`
+	SetA    string        `json:"setA"`
+	SetB    string        `json:"setB"`
 	Before  StatsSnapshot `json:"before"`
 	After   StatsSnapshot `json:"after"`
 	Delta   StatsSnapshot `json:"delta"`
@@ -155,12 +155,12 @@ func renderStatsSnapshot(result *StatsSnapshot, mods []string, excludes []string
 			TestOnlyDeps *int `json:"testOnlyDependencies,omitempty"`
 			NonTestOnly  *int `json:"nonTestOnlyDependencies,omitempty"`
 		}{
-			DirectDeps: result.DirectDeps,
-			TransDeps:  result.TransDeps,
-			TotalDeps:  result.TotalDeps,
-			MaxDepth:   result.MaxDepth,
+			DirectDeps:   result.DirectDeps,
+			TransDeps:    result.TransDeps,
+			TotalDeps:    result.TotalDeps,
+			MaxDepth:     result.MaxDepth,
 			TestOnlyDeps: result.TestOnlyDeps,
-			NonTestOnly: result.NonTestOnly,
+			NonTestOnly:  result.NonTestOnly,
 		}
 		outputRaw, err := json.MarshalIndent(outputObj, "", "\t")
 		if err != nil {
@@ -209,15 +209,15 @@ func runStatsCompare(cmd *cobra.Command) error {
 		return err
 	}
 	result := StatsCompareResult{
-		SetA: setA,
-		SetB: setB,
+		SetA:   setA,
+		SetB:   setB,
 		Before: *before,
-		After: *after,
+		After:  *after,
 		Delta: StatsSnapshot{
 			DirectDeps: after.DirectDeps - before.DirectDeps,
-			TransDeps: after.TransDeps - before.TransDeps,
-			TotalDeps: after.TotalDeps - before.TotalDeps,
-			MaxDepth: after.MaxDepth - before.MaxDepth,
+			TransDeps:  after.TransDeps - before.TransDeps,
+			TotalDeps:  after.TotalDeps - before.TotalDeps,
+			MaxDepth:   after.MaxDepth - before.MaxDepth,
 		},
 		OnlyInB: diffSlices(getAllDeps(before.MainModules, nil), getAllDeps(after.MainModules, nil)),
 	}
