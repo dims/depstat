@@ -48,6 +48,7 @@ const (
 )
 
 var whyMaxPaths int
+var whySplitTestOnly bool
 
 var whyCmd = &cobra.Command{
 	Use:   "why <dependency>",
@@ -86,6 +87,22 @@ func runWhy(cmd *cobra.Command, args []string) error {
 		Target:      target,
 		Found:       false,
 		MainModules: depGraph.MainModules,
+	}
+	if whySplitTestOnly {
+		allDeps := getAllDeps(depGraph.DirectDepList, depGraph.TransDepList)
+		testOnlySet, err := classifyTestDeps(allDeps)
+		if err != nil {
+			return fmt.Errorf("failed to classify dependencies: %w", err)
+		}
+		if testOnlySet[target] {
+			result.Found = true
+			result.Paths = []WhyPath{}
+			if jsonOutput {
+				return outputWhyJSON(result)
+			}
+			fmt.Printf("Dependency %q is test-only. No non-test paths available.\n", target)
+			return nil
+		}
 	}
 
 	// Check if target exists in dependencies
@@ -306,6 +323,7 @@ func init() {
 	whyCmd.Flags().BoolVarP(&dotOutput, "dot", "", false, "Output in DOT format for Graphviz")
 	whyCmd.Flags().BoolVarP(&svgOutput, "svg", "s", false, "Output as self-contained SVG diagram")
 	whyCmd.Flags().IntVar(&whyMaxPaths, "max-paths", whyDefaultMaxPaths, "Maximum dependency paths to search. Set 0 for no limit")
+	whyCmd.Flags().BoolVar(&whySplitTestOnly, "split-test-only", false, "Exclude test-only dependencies when finding paths (uses go mod why -m)")
 	whyCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	whyCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
 }
