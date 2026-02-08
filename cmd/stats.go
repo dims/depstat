@@ -19,6 +19,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,11 @@ var verbose bool
 var mainModules []string
 var splitTestOnly bool
 var excludeModules []string
+var statsCompare bool
+var compareSetA string
+var compareSetB string
+var compareMainModulesA []string
+var compareMainModulesB []string
 
 type Chain []string
 
@@ -43,106 +49,206 @@ var statsCmd = &cobra.Command{
 	3. Total Dependencies: Total number of dependencies of the mainModule(s)
 	4. Max Depth of Dependencies: Length of the longest chain starting from the first mainModule; defaults to length from the first module encountered in "go mod graph" output`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		depGraph := getDepInfo(mainModules)
-		if len(depGraph.MainModules) == 0 {
-			return fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
-		}
-
 		if len(args) != 0 {
 			return fmt.Errorf("stats does not take any arguments")
 		}
+	if statsCompare {
+		return runStatsCompare(cmd)
+	}
+	result, err := computeStatsSnapshot(mainModules, excludeModules, splitTestOnly)
+	if err != nil {
+		return err
+	}
+	return renderStatsSnapshot(result, mainModules, excludeModules)
+	},
+}
 
-		// get the longest chain
-		var longestChain Chain
-		if len(depGraph.MainModules) > 0 {
-			var temp Chain
-			longestChain = getLongestChain(depGraph.MainModules[0], depGraph.Graph, temp, map[string]Chain{})
-		}
-		// get values
-		maxDepth := len(longestChain)
-		directDeps := len(depGraph.DirectDepList)
-		transitiveDeps := len(depGraph.TransDepList)
-		allDeps := getAllDeps(depGraph.DirectDepList, depGraph.TransDepList)
-		totalDeps := len(allDeps)
+type StatsSnapshot struct {
+	DirectDeps    int  `json:"directDependencies"`
+	TransDeps     int  `json:"transitiveDependencies"`
+	TotalDeps     int  `json:"totalDependencies"`
+	MaxDepth      int  `json:"maxDepthOfDependencies"`
+	TestOnlyDeps  *int `json:"testOnlyDependencies,omitempty"`
+	NonTestOnly   *int `json:"nonTestOnlyDependencies,omitempty"`
+	MainModules   []string `json:"mainModules,omitempty"`
+	ExcludeValues []string `json:"excludeModules,omitempty"`
+}
 
-		testOnlyDeps := 0
-		nonTestOnlyDeps := 0
-		var testOnlySet map[string]bool
-		if splitTestOnly {
-			var err error
-			testOnlySet, err = classifyTestDeps(allDeps)
-			if err != nil {
-				return fmt.Errorf("failed to classify dependencies as test-only/non-test: %w", err)
-			}
-			testOnlyDeps = len(filterDepsByTestStatus(allDeps, testOnlySet, true))
-			nonTestOnlyDeps = len(filterDepsByTestStatus(allDeps, testOnlySet, false))
-		}
+type StatsCompareResult struct {
+	SetA    string         `json:"setA"`
+	SetB    string         `json:"setB"`
+	Before  StatsSnapshot `json:"before"`
+	After   StatsSnapshot `json:"after"`
+	Delta   StatsSnapshot `json:"delta"`
+	OnlyInB []string      `json:"onlyInB"`
+}
 
-		if !jsonOutput && !csvOutput {
-			fmt.Printf("Direct Dependencies: %d \n", directDeps)
-			fmt.Printf("Transitive Dependencies: %d \n", transitiveDeps)
-			fmt.Printf("Total Dependencies: %d \n", totalDeps)
-			fmt.Printf("Max Depth Of Dependencies: %d \n", maxDepth)
-			if splitTestOnly {
-				fmt.Printf("Test-only Dependencies: %d \n", testOnlyDeps)
-				fmt.Printf("Non-test Dependencies: %d \n", nonTestOnlyDeps)
-			}
-		}
+func computeStatsSnapshot(mods []string, excludes []string, includeSplit bool) (*StatsSnapshot, error) {
+	excludeModules = excludes
+	defer func() {
+		excludeModules = nil
+	}()
+	depGraph := getDepInfo(mods)
+	if len(depGraph.MainModules) == 0 {
+		return nil, fmt.Errorf("no main modules remain after exclusions; adjust --exclude-modules or --mainModules")
+	}
+	var longestChain Chain
+	if len(depGraph.MainModules) > 0 {
+		var temp Chain
+		longestChain = getLongestChain(depGraph.MainModules[0], depGraph.Graph, temp, map[string]Chain{})
+	}
+	maxDepth := len(longestChain)
+	directDeps := len(depGraph.DirectDepList)
+	transitiveDeps := len(depGraph.TransDepList)
+	allDeps := getAllDeps(depGraph.DirectDepList, depGraph.TransDepList)
+	totalDeps := len(allDeps)
 
-		if verbose {
-			fmt.Println("All dependencies:")
-			printDeps(allDeps)
-		}
+	result := &StatsSnapshot{
+		DirectDeps:    directDeps,
+		TransDeps:     transitiveDeps,
+		TotalDeps:     totalDeps,
+		MaxDepth:      maxDepth,
+		MainModules:   depGraph.MainModules,
+		ExcludeValues: excludes,
+	}
 
-		if verbose && splitTestOnly {
-			fmt.Println("Test-only dependencies:")
-			printDeps(filterDepsByTestStatus(allDeps, testOnlySet, true))
-			fmt.Println("Non-test dependencies:")
-			printDeps(filterDepsByTestStatus(allDeps, testOnlySet, false))
+	if includeSplit {
+		testOnlySet, err := classifyTestDeps(allDeps)
+		if err != nil {
+			return nil, fmt.Errorf("failed to classify dependencies as test-only/non-test: %w", err)
 		}
+		testOnlyDeps := len(filterDepsByTestStatus(allDeps, testOnlySet, true))
+		nonTestOnlyDeps := len(filterDepsByTestStatus(allDeps, testOnlySet, false))
+		result.TestOnlyDeps = &testOnlyDeps
+		result.NonTestOnly = &nonTestOnlyDeps
+	}
 
-		// print the longest chain
-		if verbose {
-			fmt.Println("Longest chain/s: ")
-			printChain(longestChain)
-		}
+	return result, nil
+}
 
-		if jsonOutput {
-			// create json
-			outputObj := struct {
-				DirectDeps   int  `json:"directDependencies"`
-				TransDeps    int  `json:"transitiveDependencies"`
-				TotalDeps    int  `json:"totalDependencies"`
-				MaxDepth     int  `json:"maxDepthOfDependencies"`
-				TestOnlyDeps *int `json:"testOnlyDependencies,omitempty"`
-				NonTestOnly  *int `json:"nonTestOnlyDependencies,omitempty"`
-			}{
-				DirectDeps: directDeps,
-				TransDeps:  transitiveDeps,
-				TotalDeps:  totalDeps,
-				MaxDepth:   maxDepth,
-			}
-			if splitTestOnly {
-				outputObj.TestOnlyDeps = &testOnlyDeps
-				outputObj.NonTestOnly = &nonTestOnlyDeps
-			}
-			outputRaw, err := json.MarshalIndent(outputObj, "", "\t")
-			if err != nil {
-				return err
-			}
-			fmt.Print(string(outputRaw))
+func renderStatsSnapshot(result *StatsSnapshot, mods []string, excludes []string) error {
+	if !jsonOutput && !csvOutput {
+		fmt.Printf("Direct Dependencies: %d \n", result.DirectDeps)
+		fmt.Printf("Transitive Dependencies: %d \n", result.TransDeps)
+		fmt.Printf("Total Dependencies: %d \n", result.TotalDeps)
+		fmt.Printf("Max Depth Of Dependencies: %d \n", result.MaxDepth)
+		if result.TestOnlyDeps != nil && result.NonTestOnly != nil {
+			fmt.Printf("Test-only Dependencies: %d \n", *result.TestOnlyDeps)
+			fmt.Printf("Non-test Dependencies: %d \n", *result.NonTestOnly)
 		}
-		if csvOutput {
-			if splitTestOnly {
-				fmt.Println("Direct,Transitive,Total,MaxDepth,TestOnly,NonTestOnly")
-				fmt.Printf("%d,%d,%d,%d,%d,%d\n", directDeps, transitiveDeps, totalDeps, maxDepth, testOnlyDeps, nonTestOnlyDeps)
-			} else {
-				fmt.Println("Direct,Transitive,Total,MaxDepth")
-				fmt.Printf("%d,%d,%d,%d\n", directDeps, transitiveDeps, totalDeps, maxDepth)
-			}
+	}
+	if verbose {
+		fmt.Println("All dependencies:")
+		excludeModules = excludes
+		defer func() {
+			excludeModules = nil
+		}()
+		depGraph := getDepInfo(mods)
+		printDeps(getAllDeps(depGraph.DirectDepList, depGraph.TransDepList))
+	}
+	if jsonOutput {
+		outputObj := struct {
+			DirectDeps   int  `json:"directDependencies"`
+			TransDeps    int  `json:"transitiveDependencies"`
+			TotalDeps    int  `json:"totalDependencies"`
+			MaxDepth     int  `json:"maxDepthOfDependencies"`
+			TestOnlyDeps *int `json:"testOnlyDependencies,omitempty"`
+			NonTestOnly  *int `json:"nonTestOnlyDependencies,omitempty"`
+		}{
+			DirectDeps: result.DirectDeps,
+			TransDeps:  result.TransDeps,
+			TotalDeps:  result.TotalDeps,
+			MaxDepth:   result.MaxDepth,
+			TestOnlyDeps: result.TestOnlyDeps,
+			NonTestOnly: result.NonTestOnly,
+		}
+		outputRaw, err := json.MarshalIndent(outputObj, "", "\t")
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(outputRaw))
+	}
+	if csvOutput {
+		if result.TestOnlyDeps != nil && result.NonTestOnly != nil {
+			fmt.Println("Direct,Transitive,Total,MaxDepth,TestOnly,NonTestOnly")
+			fmt.Printf("%d,%d,%d,%d,%d,%d\n", result.DirectDeps, result.TransDeps, result.TotalDeps, result.MaxDepth, *result.TestOnlyDeps, *result.NonTestOnly)
+		} else {
+			fmt.Println("Direct,Transitive,Total,MaxDepth")
+			fmt.Printf("%d,%d,%d,%d\n", result.DirectDeps, result.TransDeps, result.TotalDeps, result.MaxDepth)
+		}
+	}
+	return nil
+}
+
+func runStatsCompare(cmd *cobra.Command) error {
+	if splitTestOnly {
+		return fmt.Errorf("--compare cannot be combined with --split-test-only")
+	}
+	modsA := mainModules
+	modsB := mainModules
+	if len(compareMainModulesA) > 0 {
+		modsA = compareMainModulesA
+	}
+	if len(compareMainModulesB) > 0 {
+		modsB = compareMainModulesB
+	}
+	setA := compareSetA
+	if setA == "" {
+		setA = "A"
+	}
+	setB := compareSetB
+	if setB == "" {
+		setB = "B"
+	}
+	before, err := computeStatsSnapshot(modsA, excludeModules, false)
+	if err != nil {
+		return err
+	}
+	after, err := computeStatsSnapshot(modsB, excludeModules, false)
+	if err != nil {
+		return err
+	}
+	result := StatsCompareResult{
+		SetA: setA,
+		SetB: setB,
+		Before: *before,
+		After: *after,
+		Delta: StatsSnapshot{
+			DirectDeps: after.DirectDeps - before.DirectDeps,
+			TransDeps: after.TransDeps - before.TransDeps,
+			TotalDeps: after.TotalDeps - before.TotalDeps,
+			MaxDepth: after.MaxDepth - before.MaxDepth,
+		},
+		OnlyInB: diffSlices(getAllDeps(before.MainModules, nil), getAllDeps(after.MainModules, nil)),
+	}
+
+	if jsonOutput {
+		out, err := json.MarshalIndent(result, "", "\t")
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(out))
+		return nil
+	}
+	if csvOutput {
+		fmt.Printf("Set,Direct,Transitive,Total,MaxDepth\n")
+		fmt.Printf("%s,%d,%d,%d,%d\n", setA, before.DirectDeps, before.TransDeps, before.TotalDeps, before.MaxDepth)
+		fmt.Printf("%s,%d,%d,%d,%d\n", setB, after.DirectDeps, after.TransDeps, after.TotalDeps, after.MaxDepth)
+		fmt.Printf("Delta,%d,%d,%d,%d\n", result.Delta.DirectDeps, result.Delta.TransDeps, result.Delta.TotalDeps, result.Delta.MaxDepth)
+		if len(result.OnlyInB) > 0 {
+			fmt.Printf("OnlyIn%s,%s\n", setB, strings.Join(result.OnlyInB, ";"))
 		}
 		return nil
-	},
+	}
+	fmt.Printf("Stats compare (%s -> %s)\n", setA, setB)
+	fmt.Printf("Direct Dependencies: %d -> %d (delta %+d)\n", before.DirectDeps, after.DirectDeps, result.Delta.DirectDeps)
+	fmt.Printf("Transitive Dependencies: %d -> %d (delta %+d)\n", before.TransDeps, after.TransDeps, result.Delta.TransDeps)
+	fmt.Printf("Total Dependencies: %d -> %d (delta %+d)\n", before.TotalDeps, after.TotalDeps, result.Delta.TotalDeps)
+	fmt.Printf("Max Depth Of Dependencies: %d -> %d (delta %+d)\n", before.MaxDepth, after.MaxDepth, result.Delta.MaxDepth)
+	if len(result.OnlyInB) > 0 {
+		fmt.Printf("Only in %s: %s\n", setB, strings.Join(result.OnlyInB, ", "))
+	}
+	return nil
 }
 
 // get the longest chain starting from currentDep
@@ -188,6 +294,11 @@ func init() {
 	statsCmd.Flags().BoolVarP(&jsonOutput, "json", "j", false, "Get the output in JSON format")
 	statsCmd.Flags().BoolVarP(&csvOutput, "csv", "c", false, "Get the output in CSV format")
 	statsCmd.Flags().BoolVar(&splitTestOnly, "split-test-only", false, "Split dependency totals into test-only and non-test sections using `go mod why -m`")
+	statsCmd.Flags().BoolVar(&statsCompare, "compare", false, "Compare stats between two module sets")
+	statsCmd.Flags().StringVar(&compareSetA, "set-a", "", "Label for the first comparison set")
+	statsCmd.Flags().StringVar(&compareSetB, "set-b", "", "Label for the second comparison set")
+	statsCmd.Flags().StringSliceVar(&compareMainModulesA, "main-modules-a", []string{}, "Main modules for comparison set A")
+	statsCmd.Flags().StringSliceVar(&compareMainModulesB, "main-modules-b", []string{}, "Main modules for comparison set B")
 	statsCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	statsCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Enter modules whose dependencies should be considered direct dependencies; defaults to the first module encountered in `go mod graph` output")
 }
