@@ -29,6 +29,7 @@ var jsonOutputCycles bool
 var summaryOutputCycles bool
 var maxCycleLength int
 var cyclesTopN int
+var cyclesVerbose bool
 var cyclesSplitTestOnly bool
 
 // cyclesFinder implements Johnson's algorithm for finding all elementary cycles
@@ -120,6 +121,13 @@ var cyclesCmd = &cobra.Command{
 
 		if !jsonOutputCycles && summaryOutputCycles {
 			printCycleSummary(summary)
+			if cyclesVerbose {
+				fmt.Println()
+				fmt.Println("All cycles in dependencies are: ")
+				for _, c := range cycles {
+					printChain(c)
+				}
+			}
 		}
 
 		if jsonOutputCycles {
@@ -475,6 +483,7 @@ func init() {
 	cyclesCmd.Flags().BoolVar(&cyclesSplitTestOnly, "split-test-only", false, "Split cycles into test-only and non-test sections (uses go mod why -m)")
 	cyclesCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	cyclesCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Enter modules whose dependencies should be considered direct dependencies; defaults to the first module encountered in `go mod graph` output")
+	cyclesCmd.Flags().BoolVarP(&cyclesVerbose, "verbose", "v", false, "Include raw cycles with summary output")
 }
 
 func splitCyclesByTestStatus(cycles []Chain, testOnlySet map[string]bool) ([]Chain, []Chain) {

@@ -34,6 +34,7 @@ var graphJSONOutput bool
 var graphOutputPath string
 var graphTopMode string
 var graphTopN int
+var graphVerbose bool
 var graphSplitTestOnly bool
 
 type graphNode struct {
@@ -176,6 +177,14 @@ var graphCmd = &cobra.Command{
 		if graphDotOutput {
 			fmt.Print(fileContents)
 			return nil
+		}
+		if graphVerbose {
+			fmt.Println("Main modules:")
+			printDeps(overview.MainModules)
+			fmt.Println("Direct dependencies:")
+			printDeps(overview.DirectDepList)
+			fmt.Println("Transitive dependencies:")
+			printDeps(overview.TransDepList)
 		}
 
 		fileContentsByte := []byte(fileContents)
@@ -464,6 +473,7 @@ func init() {
 	graphCmd.Flags().BoolVar(&graphSplitTestOnly, "split-test-only", false, "Split graph into test-only and non-test sections (uses go mod why -m)")
 	graphCmd.Flags().StringSliceVar(&excludeModules, "exclude-modules", []string{}, "Exclude module path patterns (repeatable, supports * wildcard)")
 	graphCmd.Flags().StringVar(&graphOutputPath, "output", "graph.dot", "Path to DOT output file when not using --dot or --json")
+	graphCmd.Flags().BoolVarP(&graphVerbose, "verbose", "v", false, "Include dependency lists in text output")
 	graphCmd.Flags().StringSliceVarP(&mainModules, "mainModules", "m", []string{}, "Specify main modules")
 }
 
