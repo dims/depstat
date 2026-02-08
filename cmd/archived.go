@@ -140,9 +140,6 @@ func runArchived(cmd *cobra.Command, args []string) error {
 	if len(args) != 0 {
 		return fmt.Errorf("archived does not take any arguments")
 	}
-	if len(excludeModules) > 0 && (jsonOutput || !jsonOutput) {
-		// keep flag in parity with other commands; exclusions handled via getDepInfo
-	}
 
 	token, err := resolveGitHubToken()
 	if err != nil {
