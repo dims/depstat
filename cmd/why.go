@@ -132,14 +132,49 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	}
 	sort.Strings(result.DirectDeps)
 
+	// Pre-compute which nodes can reach the target to avoid full-graph DFS.
+	reachable := computeReachableToTarget(target, depGraph.Graph)
+	if !reachable[target] {
+		if jsonOutput {
+			return outputWhyJSON(result)
+		}
+		fmt.Printf("Dependency %q not reachable from any main module.\n", target)
+		return nil
+	}
+
 	// Find all paths from main modules to target.
 	var allPaths [][]string
+	if len(depGraph.MainModules) == 0 {
+		return fmt.Errorf("no main modules available to search")
+	}
+	searchMax := whyMaxPaths
 	for _, mainMod := range depGraph.MainModules {
-		findAllPaths(mainMod, target, depGraph.Graph, []string{}, make(map[string]bool), &allPaths, whyMaxPaths)
-		if whyMaxPaths > 0 && len(allPaths) >= whyMaxPaths {
+		if !reachable[mainMod] {
+			continue
+		}
+		prevCount := len(allPaths)
+		findAllPaths(mainMod, target, depGraph.Graph, reachable, []string{}, make(map[string]bool), &allPaths, searchMax)
+		added := len(allPaths) - prevCount
+		if searchMax > 0 {
+			searchMax -= added
+		}
+		if searchMax > 0 && len(allPaths) >= searchMax {
 			result.Truncated = true
 			break
 		}
+		if searchMax <= 0 && whyMaxPaths > 0 {
+			result.Truncated = true
+			break
+		}
+	}
+	fmt.Fprintf(cmd.ErrOrStderr(), "[depstat why] paths=%d truncated=%v\n", len(allPaths), result.Truncated)
+	if len(allPaths) == 0 {
+		if jsonOutput {
+			return outputWhyJSON(result)
+		}
+		fmt.Printf("Dependency %q found in graph, but no paths were discovered.\n", target)
+		fmt.Printf("Try increasing --max-paths or checking module exclusions.\n")
+		return nil
 	}
 	for _, path := range allPaths {
 		isDirect := len(path) == 2 && contains(depGraph.MainModules, path[0])
@@ -158,34 +193,34 @@ func runWhy(cmd *cobra.Command, args []string) error {
 	})
 	result.TotalPaths = len(result.Paths)
 
+	outputFn := outputWhyText
 	if jsonOutput {
-		return outputWhyJSON(result)
+		outputFn = outputWhyJSON
+	} else if dotOutput {
+		outputFn = func(res WhyResult) error { return outputWhyDOT(res, depGraph) }
+	} else if svgOutput {
+		outputFn = outputWhySVG
 	}
-	if dotOutput {
-		return outputWhyDOT(result, depGraph)
-	}
-	if svgOutput {
-		return outputWhySVG(result)
-	}
-	return outputWhyText(result)
+	return outputFn(result)
 }
 
 // findAllPaths finds paths from start to target using DFS and appends to out.
 // If maxPaths > 0, search stops once out reaches maxPaths.
-func findAllPaths(start, target string, graph map[string][]string, currentPath []string, visited map[string]bool, out *[][]string, maxPaths int) {
+func findAllPaths(start, target string, graph map[string][]string, reachable map[string]bool, currentPath []string, visited map[string]bool, out *[][]string, maxPaths int) {
+	if start == target {
+		pathCopy := make([]string, len(currentPath)+1)
+		copy(pathCopy, append(currentPath, start))
+		*out = append(*out, pathCopy)
+		return
+	}
 	if maxPaths > 0 && len(*out) >= maxPaths {
+		return
+	}
+	if !reachable[start] {
 		return
 	}
 
 	currentPath = append(currentPath, start)
-
-	if start == target {
-		// Found the target, append a copy of the path.
-		pathCopy := make([]string, len(currentPath))
-		copy(pathCopy, currentPath)
-		*out = append(*out, pathCopy)
-		return
-	}
 
 	if visited[start] {
 		return
@@ -194,11 +229,39 @@ func findAllPaths(start, target string, graph map[string][]string, currentPath [
 	defer func() { visited[start] = false }()
 
 	for _, next := range graph[start] {
-		findAllPaths(next, target, graph, currentPath, visited, out, maxPaths)
+		if !reachable[next] {
+			continue
+		}
+		findAllPaths(next, target, graph, reachable, currentPath, visited, out, maxPaths)
 		if maxPaths > 0 && len(*out) >= maxPaths {
 			return
 		}
 	}
+}
+
+func computeReachableToTarget(target string, graph map[string][]string) map[string]bool {
+	rev := make(map[string][]string)
+	for from, tos := range graph {
+		for _, to := range tos {
+			rev[to] = append(rev[to], from)
+		}
+	}
+	reachable := map[string]bool{}
+	queue := []string{target}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if reachable[current] {
+			continue
+		}
+		reachable[current] = true
+		for _, prev := range rev[current] {
+			if !reachable[prev] {
+				queue = append(queue, prev)
+			}
+		}
+	}
+	return reachable
 }
 
 func outputWhyJSON(result WhyResult) error {

@@ -14,8 +14,9 @@ func TestFindAllPathsHonorsLimit(t *testing.T) {
 		"B": {"D"},
 		"C": {"D"},
 	}
+	reachable := map[string]bool{"A": true, "B": true, "C": true, "D": true}
 	var out [][]string
-	findAllPaths("A", "D", graph, []string{}, map[string]bool{}, &out, 1)
+	findAllPaths("A", "D", graph, reachable, []string{}, map[string]bool{}, &out, 1)
 	if len(out) != 1 {
 		t.Fatalf("expected exactly 1 path due to limit, got %d (%v)", len(out), out)
 	}
